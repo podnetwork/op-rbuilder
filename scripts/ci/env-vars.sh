@@ -2,7 +2,7 @@
 
 # General information
 export DATE=$(date -u -Is) # UTC
-export REPO_URL="https://github.com/flashbots/rbuilder"
+export REPO_URL="https://github.com/flashbots/op-rbuilder"
 export PUBLIC_URL_HOST="https://flashbots-rbuilder-ci-stats.s3.us-east-2.amazonaws.com"
 export PUBLIC_URL_REPORT="$PUBLIC_URL_HOST/${S3_UPLOAD_DIR}" # S3_UPLOAD_DIR is set in the GitHub workflow
 export PUBLIC_URL_STATIC="$PUBLIC_URL_HOST/static"
