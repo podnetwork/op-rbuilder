@@ -207,7 +207,7 @@ jobs:
           file: Dockerfile
           context: .
           labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.configs.target }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           build-args: |
