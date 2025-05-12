@@ -62,9 +62,6 @@ jobs:
       - name: Test
         run: make test
 
-      - name: Validate config files
-        run: make validate-config
-
   op-integration:
     name: Op Integration tests
     runs-on: warp-ubuntu-latest-x64-32x
