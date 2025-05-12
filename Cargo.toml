@@ -3,22 +3,13 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/flashbots/rbuilder"
-repository = "https://github.com/flashbots/rbuilder"
+homepage = "https://github.com/flashbots/op-rbuilder"
+repository = "https://github.com/flashbots/op-rbuilder"
 exclude = [".github/"]
 
 [workspace]
-members = [
-    "crates/rbuilder",
-    "crates/op-rbuilder",
-    "crates/reth-rbuilder",
-    "crates/rbuilder/src/test_utils",
-    "crates/rbuilder/src/telemetry/metrics_macros",
-    "crates/eth-sparse-mpt",
-    "crates/sysperf",
-    "crates/test-relay",
-]
-default-members = ["crates/rbuilder", "crates/reth-rbuilder", "crates/test-relay"]
+members = ["crates/op-rbuilder"]
+default-members = ["crates/op-rbuilder"]
 resolver = "2"
 
 # Speed up compilation time for dev builds by reducing emitted debug info.
@@ -173,4 +164,4 @@ time = { version = "0.3.36", features = ["macros", "formatting", "parsing"] }
 eth-sparse-mpt = { path = "crates/eth-sparse-mpt" }
 rbuilder = { path = "crates/rbuilder" }
 sysperf = { path = "crates/sysperf" }
-metrics_macros = { path = "crates/rbuilder/src/telemetry/metrics_macros"}
+metrics_macros = { path = "crates/rbuilder/src/telemetry/metrics_macros" }
