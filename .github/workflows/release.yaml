@@ -3,7 +3,7 @@ name: Release Optimism
 on:
   push:
     tags:
-      - "op-v*"
+      - "v*"
   workflow_dispatch:
     inputs:
       draft-release:
@@ -22,12 +22,12 @@ on:
         required: false
         type: boolean
       features:
-        default: ''
+        default: ""
         description: "Binary Compilation Features"
         options:
-          - ''
-          - 'redact-sensitive'
-          - 'flashblocks'
+          - ""
+          - "redact-sensitive"
+          - "flashblocks"
         required: false
         type: choice
 
@@ -201,7 +201,7 @@ jobs:
         with:
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          file: Dockerfile.op-rbuilder
+          file: Dockerfile
           context: .
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
