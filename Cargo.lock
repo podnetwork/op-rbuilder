@@ -5343,7 +5343,6 @@ dependencies = [
  "derive_more",
  "eyre",
  "futures-util",
- "humantime",
  "jsonrpsee",
  "metrics",
  "op-alloy-consensus",
