@@ -1,6 +1,4 @@
 use clap::Parser;
-use monitoring::Monitoring;
-use reth::providers::CanonStateSubscriptions;
 use reth_optimism_cli::{chainspec::OpChainSpecParser, Cli};
 use reth_optimism_node::node::OpAddOnsBuilder;
 use reth_optimism_node::OpNode;
@@ -18,7 +16,6 @@ pub mod generator;
 mod integration;
 mod metrics;
 mod monitor_tx_pool;
-mod monitoring;
 #[cfg(feature = "flashblocks")]
 pub mod payload_builder;
 #[cfg(not(feature = "flashblocks"))]
@@ -55,9 +52,6 @@ fn main() {
                         .build(),
                 )
                 .on_node_started(move |ctx| {
-                    let new_canonical_blocks = ctx.provider().canonical_state_stream();
-                    let builder_signer = builder_args.builder_signer;
-
                     if builder_args.log_pool_transactions {
                         tracing::info!("Logging pool transactions");
                         ctx.task_executor.spawn_critical(
@@ -67,14 +61,6 @@ fn main() {
                             }),
                         );
                     }
-
-                    ctx.task_executor.spawn_critical(
-                        "monitoring",
-                        Box::pin(async move {
-                            let monitoring = Monitoring::new(builder_signer);
-                            let _ = monitoring.run_with_stream(new_canonical_blocks).await;
-                        }),
-                    );
 
                     Ok(())
                 })
