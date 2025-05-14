@@ -5361,6 +5361,7 @@ dependencies = [
  "reth-exex",
  "reth-metrics",
  "reth-node-api",
+ "reth-node-builder",
  "reth-node-ethereum",
  "reth-optimism-chainspec",
  "reth-optimism-cli",
