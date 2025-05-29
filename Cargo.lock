@@ -5529,6 +5529,7 @@ version = "0.1.0"
 dependencies = [
  "alloy-consensus",
  "alloy-eips 1.0.3",
+ "alloy-json-rpc",
  "alloy-network",
  "alloy-op-evm",
  "alloy-primitives",
@@ -5551,6 +5552,7 @@ dependencies = [
  "jsonrpsee 0.25.1",
  "jsonrpsee-types 0.25.1",
  "metrics",
+ "moka",
  "op-alloy-consensus",
  "op-alloy-flz",
  "op-alloy-network",
