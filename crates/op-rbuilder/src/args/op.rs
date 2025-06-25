@@ -5,6 +5,7 @@
 //! clap [Args](clap::Args) for optimism rollup configuration
 
 use crate::{flashtestations::args::FlashtestationsArgs, tx_signer::Signer};
+use alloy_primitives::Address;
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use reth_optimism_cli::commands::Commands;
@@ -50,6 +51,8 @@ pub struct OpRbuilderArgs {
         env = "PLAYGROUND_DIR",
     )]
     pub playground: Option<PathBuf>,
+    #[command(flatten)]
+    pub pod: PodArgs,
     #[command(flatten)]
     pub flashblocks: FlashblocksArgs,
     #[command(flatten)]
@@ -147,6 +150,26 @@ impl Default for FlashblocksArgs {
         };
         node_command.ext.flashblocks
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, clap::Args)]
+pub struct PodArgs {
+    #[arg(long = "pod.enabled", default_value = "false", env = "ENABLE_POD")]
+    pub is_enabled: bool,
+
+    #[arg(
+        long = "pod.rpc-url",
+        env = "POD_RPC_URL",
+        default_value = "ws://127.0.0.1:8545"
+    )]
+    pub pod_rpc_url: String,
+
+    #[arg(
+        long = "pod.contract-address",
+        env = "POD_CONTRACT_ADDRESS",
+        default_value = "0x12296f2D128530a834460DF6c36a2895B793F26d"
+    )]
+    pub pod_contract_address: Address,
 }
 
 /// Parameters for telemetry configuration

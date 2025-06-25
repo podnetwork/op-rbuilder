@@ -1,21 +1,24 @@
-use payload::StandardPayloadBuilderBuilder;
+use config::Config;
+use payload::PodPayloadBuilderBuilder;
 use reth_node_builder::components::BasicPayloadServiceBuilder;
 
 use crate::traits::{NodeBounds, PoolBounds};
 
 use super::BuilderConfig;
 
+mod config;
 mod payload;
+mod pod_client;
 
-/// Block building strategy that builds blocks using the standard approach by
+/// Block building strategy that builds blocks using auction running on pod by
 /// producing blocks every chain block time.
-pub struct StandardBuilder;
+pub struct PodBuilder;
 
-impl super::PayloadBuilder for StandardBuilder {
-    type Config = ();
+impl super::PayloadBuilder for PodBuilder {
+    type Config = Config;
 
     type ServiceBuilder<Node, Pool>
-        = BasicPayloadServiceBuilder<StandardPayloadBuilderBuilder>
+        = BasicPayloadServiceBuilder<PodPayloadBuilderBuilder>
     where
         Node: NodeBounds,
         Pool: PoolBounds;
@@ -27,8 +30,8 @@ impl super::PayloadBuilder for StandardBuilder {
         Node: NodeBounds,
         Pool: PoolBounds,
     {
-        Ok(BasicPayloadServiceBuilder::new(
-            StandardPayloadBuilderBuilder(config),
-        ))
+        Ok(BasicPayloadServiceBuilder::new(PodPayloadBuilderBuilder(
+            config,
+        )))
     }
 }

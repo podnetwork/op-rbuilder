@@ -75,6 +75,9 @@ impl CliExt for Cli {
             if node_command.ext.flashblocks.enabled {
                 return BuilderMode::Flashblocks;
             }
+            if node_command.ext.pod.is_enabled {
+                return BuilderMode::Pod;
+            }
         }
         BuilderMode::Standard
     }

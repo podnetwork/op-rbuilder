@@ -18,10 +18,12 @@ mod builder_tx;
 mod context;
 mod flashblocks;
 mod generator;
+mod pod;
 mod standard;
 
 pub use builder_tx::BuilderTx;
 pub use flashblocks::FlashblocksBuilder;
+pub use pod::PodBuilder;
 pub use standard::StandardBuilder;
 
 /// Defines the payload building mode for the OP builder.
@@ -34,6 +36,10 @@ pub enum BuilderMode {
     /// block every short interval and makes it available through a websocket update
     /// then merges them into a full block every chain block time.
     Flashblocks,
+    /// Uses the pod payload builder that builds blocks every chain block time
+    /// but picks transactions from an auction running on pod, selecting the highest
+    /// bidding transactions.
+    Pod,
 }
 
 /// Defines the interface for any block builder implementation API entry point.

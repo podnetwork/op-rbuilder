@@ -1,9 +1,9 @@
 use crate::{
     builders::{generator::BuildArguments, BuilderConfig},
-    flashtestations::service::spawn_flashtestations_service,
     metrics::OpRBuilderMetrics,
     primitives::reth::ExecutionInfo,
     traits::{ClientBounds, NodeBounds, PayloadTxsBounds, PoolBounds},
+    tx::FBPooledTransaction,
 };
 use alloy_consensus::{
     constants::EMPTY_WITHDRAWALS, proofs, BlockBody, Header, EMPTY_OMMER_ROOT_HASH,
@@ -21,7 +21,7 @@ use reth_optimism_evm::{OpEvmConfig, OpNextBlockEnvAttributes};
 use reth_optimism_forks::OpHardforks;
 use reth_optimism_node::{OpBuiltPayload, OpPayloadBuilderAttributes};
 use reth_optimism_primitives::{OpPrimitives, OpTransactionSigned};
-use reth_payload_util::{BestPayloadTransactions, NoopPayloadTransactions, PayloadTransactions};
+use reth_payload_util::NoopPayloadTransactions;
 use reth_primitives::RecoveredBlock;
 use reth_provider::{
     ExecutionOutcome, HashedPostStateProvider, ProviderError, StateRootProvider,
@@ -30,130 +30,87 @@ use reth_provider::{
 use reth_revm::{
     database::StateProviderDatabase, db::states::bundle_state::BundleRetention, State,
 };
-use reth_transaction_pool::{BestTransactionsAttributes, PoolTransaction, TransactionPool};
+use reth_tasks::TaskExecutor;
+use reth_transaction_pool::BestTransactionsAttributes;
 use revm::Database;
 use std::{sync::Arc, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use super::super::context::{estimate_gas_for_builder_tx, OpPayloadBuilderCtx};
+use super::{
+    super::context::{estimate_gas_for_builder_tx, OpPayloadBuilderCtx},
+    config::Config,
+    pod_client::PodClient,
+};
 
-pub struct StandardPayloadBuilderBuilder(pub BuilderConfig<()>);
+pub struct PodPayloadBuilderBuilder(pub BuilderConfig<Config>);
 
-impl<Node, Pool> PayloadBuilderBuilder<Node, Pool, OpEvmConfig> for StandardPayloadBuilderBuilder
+impl<Node, Pool> PayloadBuilderBuilder<Node, Pool, OpEvmConfig> for PodPayloadBuilderBuilder
 where
     Node: NodeBounds,
     Pool: PoolBounds,
 {
-    type PayloadBuilder = StandardOpPayloadBuilder<Pool, Node::Provider>;
+    type PayloadBuilder = PodOpPayloadBuilder<Node::Provider>;
 
     async fn build_payload_builder(
         self,
         ctx: &BuilderContext<Node>,
-        pool: Pool,
+        _: Pool,
         _evm_config: OpEvmConfig,
     ) -> eyre::Result<Self::PayloadBuilder> {
-        let signer = self.0.builder_signer;
-
-        if self.0.flashtestations_config.flashtestations_enabled {
-            let funding_signer = signer.expect("Key to fund TEE generated address not set");
-            match spawn_flashtestations_service(
-                self.0.flashtestations_config.clone(),
-                funding_signer,
-                ctx,
-            )
-            .await
-            {
-                Ok(service) => service,
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to spawn flashtestations service, falling back to standard builder tx");
-                    return Ok(StandardOpPayloadBuilder::new(
-                        OpEvmConfig::optimism(ctx.chain_spec()),
-                        pool,
-                        ctx.provider().clone(),
-                        self.0.clone(),
-                    ));
-                }
-            };
-
-            if self.0.flashtestations_config.enable_block_proofs {
-                // TODO: flashtestations end of block transaction
-            }
-        }
-
-        Ok(StandardOpPayloadBuilder::new(
+        PodOpPayloadBuilder::new(
             OpEvmConfig::optimism(ctx.chain_spec()),
-            pool,
+            ctx.task_executor().clone(),
             ctx.provider().clone(),
             self.0.clone(),
-        ))
+        )
+        .await
     }
 }
 
 /// Optimism's payload builder
 #[derive(Debug, Clone)]
-pub struct StandardOpPayloadBuilder<Pool, Client, Txs = ()> {
+pub struct PodOpPayloadBuilder<Client> {
     /// The type responsible for creating the evm.
     pub evm_config: OpEvmConfig,
-    /// The transaction pool
-    pub pool: Pool,
     /// Node client
     pub client: Client,
+    pod_client: Arc<PodClient>,
+    executor: TaskExecutor,
     /// Settings for the builder, e.g. DA settings.
-    pub config: BuilderConfig<()>,
-    /// The type responsible for yielding the best transactions for the payload if mempool
-    /// transactions are allowed.
-    pub best_transactions: Txs,
+    pub config: BuilderConfig<Config>,
     /// The metrics for the builder
     pub metrics: Arc<OpRBuilderMetrics>,
 }
 
-impl<Pool, Client> StandardOpPayloadBuilder<Pool, Client> {
-    /// `OpPayloadBuilder` constructor.
-    pub fn new(
+impl<Client> PodOpPayloadBuilder<Client> {
+    pub async fn new(
         evm_config: OpEvmConfig,
-        pool: Pool,
+        executor: TaskExecutor,
         client: Client,
-        config: BuilderConfig<()>,
-    ) -> Self {
-        Self {
-            pool,
+        config: BuilderConfig<Config>,
+    ) -> eyre::Result<Self> {
+        info!(target: "payload_builder", contract_address = %config.specific.contract_address, rpc_url = config.specific.rpc_url, "Initializing PodOpPayloadBuilder");
+        Ok(Self {
             client,
+            executor,
+            pod_client: Arc::new(
+                PodClient::new(
+                    config.specific.rpc_url.clone(),
+                    config.specific.contract_address,
+                )
+                .await?,
+            ),
             config,
             evm_config,
-            best_transactions: (),
             metrics: Default::default(),
-        }
+        })
     }
 }
 
-/// A type that returns a the [`PayloadTransactions`] that should be included in the pool.
-pub trait OpPayloadTransactions<Transaction>: Clone + Send + Sync + Unpin + 'static {
-    /// Returns an iterator that yields the transaction in the order they should get included in the
-    /// new payload.
-    fn best_transactions<Pool: TransactionPool<Transaction = Transaction>>(
-        &self,
-        pool: Pool,
-        attr: BestTransactionsAttributes,
-    ) -> impl PayloadTransactions<Transaction = Transaction>;
-}
-
-impl<T: PoolTransaction> OpPayloadTransactions<T> for () {
-    fn best_transactions<Pool: TransactionPool<Transaction = T>>(
-        &self,
-        pool: Pool,
-        attr: BestTransactionsAttributes,
-    ) -> impl PayloadTransactions<Transaction = T> {
-        BestPayloadTransactions::new(pool.best_transactions_with_attributes(attr))
-    }
-}
-
-impl<Pool, Client, Txs> reth_basic_payload_builder::PayloadBuilder
-    for StandardOpPayloadBuilder<Pool, Client, Txs>
+impl<Client> reth_basic_payload_builder::PayloadBuilder for PodOpPayloadBuilder<Client>
 where
-    Pool: PoolBounds,
     Client: ClientBounds,
-    Txs: OpPayloadTransactions<Pool::Transaction>,
 {
     type Attributes = OpPayloadBuilderAttributes<OpTransactionSigned>;
     type BuiltPayload = OpBuiltPayload;
@@ -162,8 +119,6 @@ where
         &self,
         args: reth_basic_payload_builder::BuildArguments<Self::Attributes, Self::BuiltPayload>,
     ) -> Result<BuildOutcome<Self::BuiltPayload>, PayloadBuilderError> {
-        let pool = self.pool.clone();
-
         let reth_basic_payload_builder::BuildArguments {
             cached_reads,
             config,
@@ -177,10 +132,18 @@ where
             cancel: CancellationToken::new(),
         };
 
-        self.build_payload(args, |attrs| {
-            #[allow(clippy::unit_arg)]
-            self.best_transactions
-                .best_transactions(pool.clone(), attrs)
+        self.build_payload(args, |timestamp, attrs| {
+            let pod_client = self.pod_client.clone();
+            let handle = self.executor.handle().clone();
+            let txs = std::thread::spawn(move || {
+                handle.block_on(pod_client.best_transactions(timestamp, attrs))
+            })
+            .join()
+            .unwrap()
+            .unwrap();
+
+            info!(target: "payload_builder", len=txs.len(), "fetched best transactions");
+            txs
         })
     }
 
@@ -203,17 +166,16 @@ where
             cached_reads: Default::default(),
             cancel: Default::default(),
         };
-        self.build_payload(args, |_| {
-            NoopPayloadTransactions::<Pool::Transaction>::default()
+        self.build_payload(args, |_, _| {
+            NoopPayloadTransactions::<FBPooledTransaction>::default()
         })?
         .into_payload()
         .ok_or_else(|| PayloadBuilderError::MissingPayload)
     }
 }
 
-impl<Pool, Client, T> StandardOpPayloadBuilder<Pool, Client, T>
+impl<Client> PodOpPayloadBuilder<Client>
 where
-    Pool: PoolBounds,
     Client: ClientBounds,
 {
     /// Constructs an Optimism payload from the transactions sent via the
@@ -224,11 +186,15 @@ where
     /// Given build arguments including an Optimism client, transaction pool,
     /// and configuration, this function creates a transaction payload. Returns
     /// a result indicating success with the payload or an error in case of failure.
-    fn build_payload<'a, Txs: PayloadTxsBounds>(
+    fn build_payload<'a, Txs, F>(
         &self,
         args: BuildArguments<OpPayloadBuilderAttributes<OpTransactionSigned>, OpBuiltPayload>,
-        best: impl FnOnce(BestTransactionsAttributes) -> Txs + Send + Sync + 'a,
-    ) -> Result<BuildOutcome<OpBuiltPayload>, PayloadBuilderError> {
+        best: F,
+    ) -> Result<BuildOutcome<OpBuiltPayload>, PayloadBuilderError>
+    where
+        Txs: PayloadTxsBounds,
+        F: FnOnce(u64, BestTransactionsAttributes) -> Txs + Send + Sync + 'a,
+    {
         let block_build_start_time = Instant::now();
 
         let BuildArguments {
@@ -324,16 +290,17 @@ where
 /// And finally
 /// 5. build the block: compute all roots (txs, state)
 #[derive(derive_more::Debug)]
-pub struct OpBuilder<'a, Txs> {
+pub struct OpBuilder<Txs, F: FnOnce(u64, BestTransactionsAttributes) -> Txs> {
     /// Yields the best transaction to include if transactions from the mempool are allowed.
-    best: Box<dyn FnOnce(BestTransactionsAttributes) -> Txs + 'a>,
+    best: F,
 }
 
-impl<'a, Txs> OpBuilder<'a, Txs> {
-    fn new(best: impl FnOnce(BestTransactionsAttributes) -> Txs + Send + Sync + 'a) -> Self {
-        Self {
-            best: Box::new(best),
-        }
+impl<Txs, F> OpBuilder<Txs, F>
+where
+    F: FnOnce(u64, BestTransactionsAttributes) -> Txs + Send + Sync,
+{
+    fn new(best: F) -> Self {
+        Self { best }
     }
 }
 
@@ -344,7 +311,7 @@ pub struct ExecutedPayload {
     pub info: ExecutionInfo,
 }
 
-impl<Txs: PayloadTxsBounds> OpBuilder<'_, Txs> {
+impl<Txs: PayloadTxsBounds, F: FnOnce(u64, BestTransactionsAttributes) -> Txs> OpBuilder<Txs, F> {
     /// Executes the payload and returns the outcome.
     pub fn execute<DB, P>(
         self,
@@ -400,7 +367,10 @@ impl<Txs: PayloadTxsBounds> OpBuilder<'_, Txs> {
 
         if !ctx.attributes().no_tx_pool {
             let best_txs_start_time = Instant::now();
-            let best_txs = best(ctx.best_transaction_attributes());
+            let best_txs = best(
+                ctx.attributes().timestamp(),
+                ctx.best_transaction_attributes(),
+            );
             ctx.metrics
                 .transaction_pool_fetch_duration
                 .record(best_txs_start_time.elapsed());
