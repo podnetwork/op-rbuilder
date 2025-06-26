@@ -126,6 +126,7 @@ where
             best_payload: _,
         } = args;
 
+        let block_number = config.parent_header.header().number + 1;
         let args = BuildArguments {
             cached_reads,
             config,
@@ -142,7 +143,7 @@ where
             .unwrap()
             .unwrap();
 
-            info!(target: "payload_builder", len=txs.len(), "fetched best transactions");
+            info!(target: "payload_builder", block=block_number, len=txs.len(), "fetched best transactions");
             txs
         })
     }

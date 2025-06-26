@@ -42,15 +42,22 @@ impl PodClient {
             .into_iter()
             .sorted_by_key(|bid| {
                 // Sort by the bid amount in descending order
-                bid.amount
+                -bid.amount
             })
-            .map(|bid| {
-                let signed_recovered =
-                    Recovered::<OpTransactionSigned>::decode(&mut bid.data.as_slice()).unwrap();
-                let pooled_tx = OpPooledTransaction::new(signed_recovered, bid.data.len());
-                tracing::info!(target: "payload_builder", tx=%pooled_tx.transaction.tx_hash(), bid=%bid.amount, "fetched tx from pod: {:?}", pooled_tx);
+            .filter_map(|bid| {
+                let recovered = match
+                    Recovered::<OpTransactionSigned>::decode(&mut bid.data.as_slice()) {
+                        Ok(tx) => {
+                            tracing::info!(target: "payload_builder", tx=%tx.tx_hash(), bid=%bid.amount, "fetched tx from pod: {tx:?}");
+                            Some(tx)
+                        },
+                        Err(error) => {
+                            tracing::warn!(target: "payload_builder", ?error, "failed to decode transaction from pod");
+                            None
+                        }
+                    }?;
 
-                pooled_tx.into()
+                Some(OpPooledTransaction::new(recovered, bid.data.len()).into())
             })
             .collect::<VecDeque<_>>();
         Ok(Transactions(transactions))
