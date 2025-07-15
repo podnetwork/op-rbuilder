@@ -133,17 +133,22 @@ where
             cancel: CancellationToken::new(),
         };
 
+        let span = tracing::info_span!("build_payload", block_number);
+        let _enter = span.enter();
+
         self.build_payload(args, |timestamp, attrs| {
             let pod_client = self.pod_client.clone();
             let handle = self.executor.handle().clone();
+            let span = span.clone();
             let txs = std::thread::spawn(move || {
+                let _enter = span.enter();
                 handle.block_on(pod_client.best_transactions(timestamp, attrs))
             })
             .join()
             .unwrap()
             .unwrap();
 
-            info!(target: "payload_builder", block=block_number, len=txs.len(), "fetched best transactions");
+            info!(target: "payload_builder", len=txs.len(), "fetched best transactions");
             txs
         })
     }

@@ -6564,14 +6564,16 @@ dependencies = [
 [[package]]
 name = "optimism-tx-auction"
 version = "0.1.0"
-source = "git+https://github.com/podnetwork/pod-sdk?rev=05b3f123d165de2b60c70621f40c7c3a6b1a9b07#05b3f123d165de2b60c70621f40c7c3a6b1a9b07"
+source = "git+https://github.com/podnetwork/pod-sdk?rev=7955edcec2198d95286409a72256efcac0d1e3bc#7955edcec2198d95286409a72256efcac0d1e3bc"
 dependencies = [
  "alloy",
  "anyhow",
  "clap 4.5.40",
+ "humantime",
  "op-alloy",
  "pod-sdk",
  "pod-types",
+ "rand 0.9.1",
  "tokio",
  "tracing",
 ]
@@ -6874,7 +6876,7 @@ dependencies = [
 [[package]]
 name = "pod-sdk"
 version = "0.1.0"
-source = "git+https://github.com/podnetwork/pod-sdk?rev=05b3f123d165de2b60c70621f40c7c3a6b1a9b07#05b3f123d165de2b60c70621f40c7c3a6b1a9b07"
+source = "git+https://github.com/podnetwork/pod-sdk?rev=7955edcec2198d95286409a72256efcac0d1e3bc#7955edcec2198d95286409a72256efcac0d1e3bc"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -6900,7 +6902,7 @@ dependencies = [
 [[package]]
 name = "pod-types"
 version = "0.1.0"
-source = "git+https://github.com/podnetwork/pod-sdk?rev=05b3f123d165de2b60c70621f40c7c3a6b1a9b07#05b3f123d165de2b60c70621f40c7c3a6b1a9b07"
+source = "git+https://github.com/podnetwork/pod-sdk?rev=7955edcec2198d95286409a72256efcac0d1e3bc#7955edcec2198d95286409a72256efcac0d1e3bc"
 dependencies = [
  "alloy-consensus",
  "alloy-primitives 1.2.0",

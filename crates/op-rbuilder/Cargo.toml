@@ -133,8 +133,8 @@ tar = { version = "0.4", optional = true }
 ctor = { version = "0.4.2", optional = true }
 rlimit = { version = "0.10", optional = true }
 macros = { path = "src/tests/framework/macros", optional = true }
-pod-sdk = { git = "https://github.com/podnetwork/pod-sdk", rev = "05b3f123d165de2b60c70621f40c7c3a6b1a9b07" }
-pod-auction = { package = "optimism-tx-auction", git = "https://github.com/podnetwork/pod-sdk", rev = "05b3f123d165de2b60c70621f40c7c3a6b1a9b07" }
+pod-sdk = { git = "https://github.com/podnetwork/pod-sdk", rev = "7955edcec2198d95286409a72256efcac0d1e3bc" }
+pod-auction = { package = "optimism-tx-auction", git = "https://github.com/podnetwork/pod-sdk", rev = "7955edcec2198d95286409a72256efcac0d1e3bc" }
 itertools = "0.14.0"
 
 [target.'cfg(unix)'.dependencies]

@@ -1,5 +1,6 @@
 use std::{collections::VecDeque, fmt::Debug};
 
+use alloy_consensus::Transaction;
 use alloy_primitives::Address;
 use alloy_rlp::Decodable;
 use itertools::Itertools;
@@ -27,23 +28,28 @@ impl PodClient {
         Ok(Self { client, rpc_url })
     }
 
+    #[tracing::instrument(skip(self, _attrs))]
     pub async fn best_transactions(
         &self,
         timestamp_secs: u64,
         _attrs: BestTransactionsAttributes,
     ) -> eyre::Result<Transactions> {
-        let timestamp = timestamp_secs - 2;
-        tracing::trace!(target: "payload_builder", timestamp, "querying best transactions");
-        let bids = self.client.bids(timestamp).await.unwrap_or_else(|err| {
-            tracing::error!(target: "payload_builder", ?err, "failed to fetch bids from pod");
-            Vec::new()
-        });
+        let auction_deadline = timestamp_secs - 2;
+        tracing::trace!(target: "payload_builder", auction_deadline, "querying best transactions");
+        let bids = self
+            .client
+            .bids(auction_deadline)
+            .await
+            .unwrap_or_else(|err| {
+                tracing::error!(target: "payload_builder", ?err, "failed to fetch bids from pod");
+                Vec::new()
+            });
         let transactions = bids
             .into_iter()
-            .sorted_by_key(|bid| {
-                // Sort by the bid amount in descending order
-                -bid.amount
+            .sorted_unstable_by_key(|bid| {
+                bid.amount
             })
+            .rev()
             .filter_map(|bid| {
                 let recovered = match
                     Recovered::<OpTransactionSigned>::decode(&mut bid.data.as_slice()) {
@@ -56,6 +62,9 @@ impl PodClient {
                             None
                         }
                     }?;
+                if recovered.max_priority_fee_per_gas().unwrap_or(0) != bid.amount {
+                            tracing::error!(target: "payload_builder", tx=%recovered.tx_hash(), "ignoring tx with different max priority fee per gas than bid amount");
+                }
 
                 Some(OpPooledTransaction::new(recovered, bid.data.len()).into())
             })
