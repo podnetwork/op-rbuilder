@@ -30,7 +30,9 @@ use reth_provider::{
 use reth_revm::{
     database::StateProviderDatabase, db::states::bundle_state::BundleRetention, State,
 };
-use reth_transaction_pool::{BestTransactionsAttributes, PoolTransaction, TransactionPool};
+use reth_transaction_pool::{
+    BestTransactions, BestTransactionsAttributes, PoolTransaction, TransactionPool,
+};
 use revm::Database;
 use std::{sync::Arc, time::Instant};
 use tokio_util::sync::CancellationToken;
@@ -53,17 +55,8 @@ where
         pool: Pool,
         _evm_config: OpEvmConfig,
     ) -> eyre::Result<Self::PayloadBuilder> {
-        let signer = self.0.builder_signer;
-
         if self.0.flashtestations_config.flashtestations_enabled {
-            let funding_signer = signer.expect("Key to fund TEE generated address not set");
-            match spawn_flashtestations_service(
-                self.0.flashtestations_config.clone(),
-                funding_signer,
-                ctx,
-            )
-            .await
-            {
+            match spawn_flashtestations_service(self.0.flashtestations_config.clone(), ctx).await {
                 Ok(service) => service,
                 Err(e) => {
                     tracing::warn!(error = %e, "Failed to spawn flashtestations service, falling back to standard builder tx");
@@ -144,7 +137,12 @@ impl<T: PoolTransaction> OpPayloadTransactions<T> for () {
         pool: Pool,
         attr: BestTransactionsAttributes,
     ) -> impl PayloadTransactions<Transaction = T> {
-        BestPayloadTransactions::new(pool.best_transactions_with_attributes(attr))
+        // TODO: once this issue is fixed we could remove without_updates and rely on regular impl
+        // https://github.com/paradigmxyz/reth/issues/17325
+        BestPayloadTransactions::new(
+            pool.best_transactions_with_attributes(attr)
+                .without_updates(),
+        )
     }
 }
 
@@ -276,32 +274,37 @@ where
             cancel,
             builder_signer: self.config.builder_signer,
             metrics: self.metrics.clone(),
+            extra_ctx: Default::default(),
         };
 
         let builder = OpBuilder::new(best);
 
         let state_provider = self.client.state_by_block_hash(ctx.parent().hash())?;
-        let state = StateProviderDatabase::new(state_provider);
+        let db = StateProviderDatabase::new(state_provider);
         let metrics = ctx.metrics.clone();
 
         if ctx.attributes().no_tx_pool {
-            let db = State::builder()
-                .with_database(state)
+            let state = State::builder()
+                .with_database(db)
                 .with_bundle_update()
                 .build();
-            builder.build(db, ctx)
+            builder.build(state, ctx)
         } else {
             // sequencer mode we can reuse cachedreads from previous runs
-            let db = State::builder()
-                .with_database(cached_reads.as_db_mut(state))
+            let state = State::builder()
+                .with_database(cached_reads.as_db_mut(db))
                 .with_bundle_update()
                 .build();
-            builder.build(db, ctx)
+            builder.build(state, ctx)
         }
         .map(|out| {
+            let total_block_building_time = block_build_start_time.elapsed();
             metrics
                 .total_block_built_duration
-                .record(block_build_start_time.elapsed());
+                .record(total_block_building_time);
+            metrics
+                .total_block_built_gauge
+                .set(total_block_building_time);
 
             out.with_cached_reads(cached_reads)
         })
@@ -352,7 +355,7 @@ impl<Txs: PayloadTxsBounds> OpBuilder<'_, Txs> {
         ctx: &OpPayloadBuilderCtx,
     ) -> Result<BuildOutcomeKind<ExecutedPayload>, PayloadBuilderError>
     where
-        DB: Database<Error = ProviderError> + AsRef<P>,
+        DB: Database<Error = ProviderError> + AsRef<P> + std::fmt::Debug,
         P: StorageRootProvider,
     {
         let Self { best } = self;
@@ -369,9 +372,9 @@ impl<Txs: PayloadTxsBounds> OpBuilder<'_, Txs> {
         // 3. execute sequencer transactions
         let mut info = ctx.execute_sequencer_transactions(state)?;
 
-        ctx.metrics
-            .sequencer_tx_duration
-            .record(sequencer_tx_start_time.elapsed());
+        let sequencer_tx_time = sequencer_tx_start_time.elapsed();
+        ctx.metrics.sequencer_tx_duration.record(sequencer_tx_time);
+        ctx.metrics.sequencer_tx_gauge.set(sequencer_tx_time);
 
         // 4. if mem pool transactions are requested we execute them
 
@@ -401,9 +404,14 @@ impl<Txs: PayloadTxsBounds> OpBuilder<'_, Txs> {
         if !ctx.attributes().no_tx_pool {
             let best_txs_start_time = Instant::now();
             let best_txs = best(ctx.best_transaction_attributes());
+            let transaction_pool_fetch_time = best_txs_start_time.elapsed();
             ctx.metrics
                 .transaction_pool_fetch_duration
-                .record(best_txs_start_time.elapsed());
+                .record(transaction_pool_fetch_time);
+            ctx.metrics
+                .transaction_pool_fetch_gauge
+                .set(transaction_pool_fetch_time);
+
             if ctx
                 .execute_best_transactions(
                     &mut info,
@@ -427,12 +435,20 @@ impl<Txs: PayloadTxsBounds> OpBuilder<'_, Txs> {
         // and 4788 contract call
         state.merge_transitions(BundleRetention::Reverts);
 
+        let state_transition_merge_time = state_merge_start_time.elapsed();
         ctx.metrics
             .state_transition_merge_duration
-            .record(state_merge_start_time.elapsed());
+            .record(state_transition_merge_time);
+        ctx.metrics
+            .state_transition_merge_gauge
+            .set(state_transition_merge_time);
+
         ctx.metrics
             .payload_num_tx
             .record(info.executed_transactions.len() as f64);
+        ctx.metrics
+            .payload_num_tx_gauge
+            .set(info.executed_transactions.len() as f64);
 
         let payload = ExecutedPayload { info };
 
@@ -447,7 +463,7 @@ impl<Txs: PayloadTxsBounds> OpBuilder<'_, Txs> {
         ctx: OpPayloadBuilderCtx,
     ) -> Result<BuildOutcomeKind<OpBuiltPayload>, PayloadBuilderError>
     where
-        DB: Database<Error = ProviderError> + AsRef<P>,
+        DB: Database<Error = ProviderError> + AsRef<P> + std::fmt::Debug,
         P: StateRootProvider + HashedPostStateProvider + StorageRootProvider,
     {
         let ExecutedPayload { info } = match self.execute(&mut state, &ctx)? {
@@ -495,9 +511,13 @@ impl<Txs: PayloadTxsBounds> OpBuilder<'_, Txs> {
                 })?
         };
 
+        let state_root_calculation_time = state_root_start_time.elapsed();
         ctx.metrics
             .state_root_calculation_duration
-            .record(state_root_start_time.elapsed());
+            .record(state_root_calculation_time);
+        ctx.metrics
+            .state_root_calculation_gauge
+            .set(state_root_calculation_time);
 
         let (withdrawals_root, requests_hash) = if ctx.is_isthmus_active() {
             // withdrawals root field in block header is used for storage root of L2 predeploy
@@ -587,6 +607,9 @@ impl<Txs: PayloadTxsBounds> OpBuilder<'_, Txs> {
         ctx.metrics
             .payload_byte_size
             .record(payload.block().size() as f64);
+        ctx.metrics
+            .payload_byte_size_gauge
+            .set(payload.block().size() as f64);
 
         if no_tx_pool {
             // if `no_tx_pool` is set only transactions from the payload attributes will be included

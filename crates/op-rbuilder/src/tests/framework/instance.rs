@@ -2,10 +2,11 @@ use crate::{
     args::OpRbuilderArgs,
     builders::{BuilderConfig, FlashblocksBuilder, PayloadBuilder, StandardBuilder},
     primitives::reth::engine_api_builder::OpEngineApiBuilder,
-    revert_protection::{EthApiExtServer, EthApiOverrideServer, RevertProtectionExt},
+    revert_protection::{EthApiExtServer, RevertProtectionExt},
     tests::{
+        create_test_db,
         framework::{driver::ChainDriver, BUILDER_PRIVATE_KEY},
-        ChainDriverExt, EngineApi, Ipc, TransactionPoolObserver,
+        EngineApi, Ipc, TransactionPoolObserver,
     },
     tx::FBPooledTransaction,
     tx_signer::Signer,
@@ -36,6 +37,7 @@ use reth_optimism_node::{
     node::{OpAddOns, OpAddOnsBuilder, OpEngineValidatorBuilder, OpPoolBuilder},
     OpNode,
 };
+use reth_optimism_rpc::OpEthApiBuilder;
 use reth_transaction_pool::{AllTransactionsEvents, TransactionPool};
 use std::sync::{Arc, LazyLock};
 use tokio::sync::oneshot;
@@ -98,7 +100,7 @@ impl LocalInstance {
 
         let addons: OpAddOns<
             _,
-            _,
+            OpEthApiBuilder,
             OpEngineValidatorBuilder,
             OpEngineApiBuilder<OpEngineValidatorBuilder>,
         > = OpAddOnsBuilder::default()
@@ -108,7 +110,8 @@ impl LocalInstance {
             .build();
 
         let node_builder = NodeBuilder::<_, OpChainSpec>::new(config.clone())
-            .testing_node(task_manager.executor())
+            .with_database(create_test_db(config.clone()))
+            .with_launch_context(task_manager.executor())
             .with_types::<OpNode>()
             .with_components(
                 op_node
@@ -123,15 +126,15 @@ impl LocalInstance {
 
                     let pool = ctx.pool().clone();
                     let provider = ctx.provider().clone();
-                    let revert_protection_ext =
-                        RevertProtectionExt::new(pool, provider, ctx.registry.eth_api().clone());
+                    let revert_protection_ext = RevertProtectionExt::new(
+                        pool,
+                        provider,
+                        ctx.registry.eth_api().clone(),
+                        reverted_cache,
+                    );
 
                     ctx.modules
-                        .merge_configured(revert_protection_ext.bundle_api().into_rpc())?;
-
-                    ctx.modules.replace_configured(
-                        revert_protection_ext.eth_api(reverted_cache).into_rpc(),
-                    )?;
+                        .add_or_replace_configured(revert_protection_ext.into_rpc())?;
                 }
 
                 Ok(())
@@ -177,10 +180,7 @@ impl LocalInstance {
         let Commands::Node(ref node_command) = args.command else {
             unreachable!()
         };
-        let instance = Self::new::<StandardBuilder>(node_command.ext.clone()).await?;
-        let driver = ChainDriver::<Ipc>::local(&instance).await?;
-        driver.fund_default_accounts().await?;
-        Ok(instance)
+        Self::new::<StandardBuilder>(node_command.ext.clone()).await
     }
 
     /// Creates new local instance of the OP builder node with the flashblocks builder configuration.
@@ -192,10 +192,7 @@ impl LocalInstance {
         };
         node_command.ext.flashblocks.enabled = true;
         node_command.ext.flashblocks.flashblocks_port = 0; // use random os assigned port
-        let instance = Self::new::<FlashblocksBuilder>(node_command.ext.clone()).await?;
-        let driver = ChainDriver::<Ipc>::local(&instance).await?;
-        driver.fund_default_accounts().await?;
-        Ok(instance)
+        Self::new::<FlashblocksBuilder>(node_command.ext.clone()).await
     }
 
     pub const fn config(&self) -> &NodeConfig<OpChainSpec> {

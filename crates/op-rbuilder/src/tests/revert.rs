@@ -42,7 +42,7 @@ async fn monitor_transaction_gc(rbuilder: LocalInstance) -> eyre::Result<()> {
 
     // generate 10 blocks
     for i in 0..10 {
-        let generated_block = driver.build_new_block().await?;
+        let generated_block = driver.build_new_block_with_current_timestamp(None).await?;
 
         if_standard! {
             // standard builder blocks should only include two transactions (deposit + builder)
@@ -50,7 +50,7 @@ async fn monitor_transaction_gc(rbuilder: LocalInstance) -> eyre::Result<()> {
         }
 
         if_flashblocks! {
-            // flashblocks should include three transactions (deposit + builder + first flashblock)
+            // flashblocks should include three transactions (deposit + 2 builder txs)
             assert_eq!(generated_block.transactions.len(), 3);
         }
 
@@ -182,10 +182,8 @@ async fn bundle_min_block_number(rbuilder: LocalInstance) -> eyre::Result<()> {
         .with_revert() // the transaction reverts but it is included in the block
         .with_reverted_hash()
         .with_bundle(BundleOpts {
-            block_number_max: None,
             block_number_min: Some(2),
-            min_timestamp: None,
-            max_timestamp: None,
+            ..Default::default()
         })
         .send()
         .await?;
@@ -204,8 +202,7 @@ async fn bundle_min_block_number(rbuilder: LocalInstance) -> eyre::Result<()> {
         .with_bundle(BundleOpts {
             block_number_max: Some(4),
             block_number_min: Some(4),
-            min_timestamp: None,
-            max_timestamp: None,
+            ..Default::default()
         })
         .send()
         .await?;
@@ -270,8 +267,7 @@ async fn bundle_range_limits(rbuilder: LocalInstance) -> eyre::Result<()> {
             .with_bundle(BundleOpts {
                 block_number_max,
                 block_number_min,
-                min_timestamp: None,
-                max_timestamp: None,
+                ..Default::default()
             })
             .send()
             .await

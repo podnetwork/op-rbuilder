@@ -1,14 +1,15 @@
 use eyre::Result;
+use reth_optimism_rpc::OpEthApiBuilder;
 
 use crate::{
     args::*,
     builders::{
         BuilderConfig, BuilderMode, FlashblocksBuilder, PayloadBuilder, PodBuilder, StandardBuilder,
     },
-    metrics::VERSION,
+    metrics::{record_flag_gauge_metrics, VERSION},
     monitor_tx_pool::monitor_tx_pool,
     primitives::reth::engine_api_builder::OpEngineApiBuilder,
-    revert_protection::{EthApiExtServer, EthApiOverrideServer, RevertProtectionExt},
+    revert_protection::{EthApiExtServer, RevertProtectionExt},
     tx::FBPooledTransaction,
 };
 use core::fmt::Debug;
@@ -105,6 +106,8 @@ where
         let builder_config = BuilderConfig::<B::Config>::try_from(builder_args.clone())
             .expect("Failed to convert rollup args to builder config");
 
+        record_flag_gauge_metrics(&builder_args);
+
         let da_config = builder_config.da_config.clone();
         let rollup_args = builder_args.rollup_args;
         let op_node = OpNode::new(rollup_args.clone());
@@ -113,7 +116,7 @@ where
 
         let mut addons: OpAddOns<
             _,
-            _,
+            OpEthApiBuilder,
             OpEngineValidatorBuilder,
             OpEngineApiBuilder<OpEngineValidatorBuilder>,
         > = OpAddOnsBuilder::default()
@@ -153,14 +156,15 @@ where
 
                     let pool = ctx.pool().clone();
                     let provider = ctx.provider().clone();
-                    let revert_protection_ext =
-                        RevertProtectionExt::new(pool, provider, ctx.registry.eth_api().clone());
+                    let revert_protection_ext = RevertProtectionExt::new(
+                        pool,
+                        provider,
+                        ctx.registry.eth_api().clone(),
+                        reverted_cache,
+                    );
 
                     ctx.modules
-                        .merge_configured(revert_protection_ext.bundle_api().into_rpc())?;
-                    ctx.modules.replace_configured(
-                        revert_protection_ext.eth_api(reverted_cache).into_rpc(),
-                    )?;
+                        .add_or_replace_configured(revert_protection_ext.into_rpc())?;
                 }
 
                 Ok(())
