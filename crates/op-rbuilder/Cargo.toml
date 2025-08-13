@@ -133,8 +133,7 @@ ctor = { version = "0.4.2", optional = true }
 rlimit = { version = "0.10", optional = true }
 macros = { path = "src/tests/framework/macros", optional = true }
 testcontainers = "0.24.0"
-pod-sdk = { git = "https://github.com/podnetwork/pod-sdk", rev = "8f39e51f0cd0c0e02e8b6011562f59f6b60988bb" }
-pod-auction = { package = "optimism-tx-auction", git = "https://github.com/podnetwork/pod-sdk", rev = "8f39e51f0cd0c0e02e8b6011562f59f6b60988bb" }
+pod-sdk = { git = "https://github.com/podnetwork/pod-sdk", rev = "1c665bb9926960c83f3253ced3f3af2b972f7657" }
 itertools = "0.14.0"
 
 [target.'cfg(unix)'.dependencies]

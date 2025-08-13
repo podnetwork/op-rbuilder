@@ -136,13 +136,13 @@ where
         let span = tracing::info_span!("build_payload", block_number);
         let _enter = span.enter();
 
-        self.build_payload(args, |timestamp, attrs| {
+        self.build_payload(args, |timestamp, _attrs| {
             let pod_client = self.pod_client.clone();
             let handle = self.executor.handle().clone();
             let span = span.clone();
             let txs = std::thread::spawn(move || {
                 let _enter = span.enter();
-                handle.block_on(pod_client.best_transactions(timestamp, attrs))
+                handle.block_on(pod_client.best_transactions(timestamp))
             })
             .join()
             .unwrap()
@@ -248,6 +248,7 @@ where
             cancel,
             builder_signer: self.config.builder_signer,
             metrics: self.metrics.clone(),
+            extra_ctx: Default::default(),
         };
 
         let builder = OpBuilder::new(best);
@@ -325,7 +326,7 @@ impl<Txs: PayloadTxsBounds, F: FnOnce(u64, BestTransactionsAttributes) -> Txs> O
         ctx: &OpPayloadBuilderCtx,
     ) -> Result<BuildOutcomeKind<ExecutedPayload>, PayloadBuilderError>
     where
-        DB: Database<Error = ProviderError> + AsRef<P>,
+        DB: Database<Error = ProviderError> + AsRef<P> + std::fmt::Debug,
         P: StorageRootProvider,
     {
         let Self { best } = self;
@@ -423,7 +424,7 @@ impl<Txs: PayloadTxsBounds, F: FnOnce(u64, BestTransactionsAttributes) -> Txs> O
         ctx: OpPayloadBuilderCtx,
     ) -> Result<BuildOutcomeKind<OpBuiltPayload>, PayloadBuilderError>
     where
-        DB: Database<Error = ProviderError> + AsRef<P>,
+        DB: Database<Error = ProviderError> + AsRef<P> + std::fmt::Debug,
         P: StateRootProvider + HashedPostStateProvider + StorageRootProvider,
     {
         let ExecutedPayload { info } = match self.execute(&mut state, &ctx)? {

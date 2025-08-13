@@ -1,44 +1,73 @@
-use std::{collections::VecDeque, fmt::Debug};
+use std::{collections::VecDeque, fmt::Debug, time::Duration};
 
+use eyre::Context;
 use alloy_consensus::Transaction;
-use alloy_primitives::Address;
+use alloy_primitives::{Address, U256};
 use alloy_rlp::Decodable;
 use itertools::Itertools;
-use pod_auction::client::AuctionClient;
+use pod_sdk::{auctions::client::AuctionClient, provider::PodProviderBuilder};
 use reth_optimism_primitives::OpTransactionSigned;
 use reth_optimism_txpool::OpPooledTransaction;
 use reth_payload_util::PayloadTransactions;
 use reth_primitives::Recovered;
-use reth_transaction_pool::BestTransactionsAttributes;
+use tokio::sync::OnceCell;
 
 use crate::tx::FBPooledTransaction;
 
 pub(super) struct PodClient {
-    client: AuctionClient,
+    client: OnceCell<AuctionClient>,
     rpc_url: String,
+    contract: Address,
 }
 
 #[derive(Debug)]
 pub(super) struct Transactions(VecDeque<FBPooledTransaction>);
 
 impl PodClient {
-    pub async fn new(rpc_url: String, contract_address: Address) -> eyre::Result<Self> {
-        let client = AuctionClient::new(rpc_url.clone(), contract_address).await;
-
-        Ok(Self { client, rpc_url })
+    pub async fn new(rpc_url: String, contract: Address) -> eyre::Result<Self> {
+        Ok(Self {
+            client: OnceCell::new(),
+            rpc_url,
+            contract,
+        })
     }
 
-    #[tracing::instrument(skip(self, _attrs))]
-    pub async fn best_transactions(
-        &self,
-        timestamp_secs: u64,
-        _attrs: BestTransactionsAttributes,
-    ) -> eyre::Result<Transactions> {
+    async fn get_client(&self) -> eyre::Result<&AuctionClient> {
+        self.client
+            .get_or_try_init(|| async {
+                let provider = PodProviderBuilder::new()
+                    .on_url(self.rpc_url.clone())
+                    .await
+                    .map_err(eyre::Error::from)?;
+
+                Ok(AuctionClient::new(provider, self.contract))
+            })
+            .await
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn best_transactions(&self, timestamp_secs: u64) -> eyre::Result<Transactions> {
+        let auction = self.get_client().await?;
         let auction_deadline = timestamp_secs - 2;
         tracing::trace!(target: "payload_builder", auction_deadline, "querying best transactions");
-        let bids = self
-            .client
-            .bids(auction_deadline)
+        let auction_deadline = pod_sdk::Timestamp::from_seconds(auction_deadline);
+
+        tracing::info!("waiting for past perfect time");
+        // FIXME: The current PPT implementation in pod is dummy and waits 5s which is far too long.
+        // Use auction.wait_for_auction_end() when it's fixed.
+        auction
+            .auction
+            .provider()
+            .wait_past_perfect_time(
+                auction_deadline - Duration::from_secs(5) + Duration::from_millis(200),
+            )
+            .await
+            .context("waiting for auction end (past perfect time)")?;
+        tracing::info!("past perfect time reached");
+
+        let bids = auction
+            .fetch_bids_for_deadline(auction_deadline.into())
+            // .fetch_bids(U256::from(auction_deadline )) // auction ID is in microseconds
             .await
             .unwrap_or_else(|err| {
                 tracing::error!(target: "payload_builder", ?err, "failed to fetch bids from pod");
@@ -62,7 +91,7 @@ impl PodClient {
                             None
                         }
                     }?;
-                if recovered.max_priority_fee_per_gas().unwrap_or(0) != bid.amount {
+                if U256::from(recovered.max_priority_fee_per_gas().unwrap_or(0)) != bid.amount {
                             tracing::error!(target: "payload_builder", tx=%recovered.tx_hash(), "ignoring tx with different max priority fee per gas than bid amount");
                 }
 
