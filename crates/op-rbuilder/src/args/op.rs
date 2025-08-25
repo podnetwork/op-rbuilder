@@ -161,14 +161,14 @@ pub struct PodArgs {
     #[arg(
         long = "pod.rpc-url",
         env = "POD_RPC_URL",
-        default_value = "ws://127.0.0.1:8545"
+        default_value = "wss://rpc.v2.pod.network"
     )]
     pub pod_rpc_url: String,
 
     #[arg(
         long = "pod.contract-address",
         env = "POD_CONTRACT_ADDRESS",
-        default_value = "0x12296f2D128530a834460DF6c36a2895B793F26d"
+        default_value = "0xedd0670497e00ded712a398563ea938a29dd28c7"
     )]
     pub pod_contract_address: Address,
 }
