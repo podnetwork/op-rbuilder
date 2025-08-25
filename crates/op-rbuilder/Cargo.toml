@@ -71,6 +71,7 @@ alloy-serde.workspace = true
 alloy-json-rpc.workspace = true
 alloy-signer-local.workspace = true
 alloy-sol-types.workspace = true
+alloy-rlp.workspace = true
 
 # op
 alloy-op-evm.workspace = true
@@ -132,6 +133,8 @@ ctor = { version = "0.4.2", optional = true }
 rlimit = { version = "0.10", optional = true }
 macros = { path = "src/tests/framework/macros", optional = true }
 testcontainers = "0.24.0"
+pod-sdk = { git = "https://github.com/podnetwork/pod-sdk", rev = "1c665bb9926960c83f3253ced3f3af2b972f7657" }
+itertools = "0.14.0"
 
 [target.'cfg(unix)'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }

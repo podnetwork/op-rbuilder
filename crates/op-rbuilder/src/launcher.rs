@@ -3,7 +3,9 @@ use reth_optimism_rpc::OpEthApiBuilder;
 
 use crate::{
     args::*,
-    builders::{BuilderConfig, BuilderMode, FlashblocksBuilder, PayloadBuilder, StandardBuilder},
+    builders::{
+        BuilderConfig, BuilderMode, FlashblocksBuilder, PayloadBuilder, PodBuilder, StandardBuilder,
+    },
     metrics::{record_flag_gauge_metrics, VERSION},
     monitor_tx_pool::monitor_tx_pool,
     primitives::reth::engine_api_builder::OpEngineApiBuilder,
@@ -55,6 +57,11 @@ pub fn launch() -> Result<()> {
         BuilderMode::Flashblocks => {
             tracing::info!("Starting OP builder in flashblocks mode");
             let launcher = BuilderLauncher::<FlashblocksBuilder>::new();
+            cli_app.run(launcher)?;
+        }
+        BuilderMode::Pod => {
+            tracing::info!("Starting OP builder in pod mode");
+            let launcher = BuilderLauncher::<PodBuilder>::new();
             cli_app.run(launcher)?;
         }
     }
